@@ -377,7 +377,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             outlineColor,
             showGroundTruth,
             resetZoom,
+            onCreateAnnotations,
         } = this.props;
+
+        window.onCreateAnnotations = onCreateAnnotations;
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
 
         // It's awful approach from the point of view React

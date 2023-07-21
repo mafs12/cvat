@@ -256,11 +256,32 @@ const samPlugin: SAMPlugin = {
                     const ytl = Number(data.ytl.data[0]);
                     const ybr = Number(data.ybr.data[0]);
 
-
+                    let regions = [];
                     if (result) {
                         const wrapper = window.document.getElementById('cvat_canvas_wrapper');
                         const canvas = window.document.getElementById('cvat_canvas_background');
                         const test = window.document.getElementById('cvat_canvas_bitmap');
+
+                        window.magicButtonAction = () => {
+                            const objects = [];
+                            for (const [masks, xtl, xbr, ytl, ybr, imageData, result] of regions) {
+                                const object = new plugin.data.core.classes.ObjectState({
+                                    frame,
+                                    objectType: plugin.data.core.enums.ObjectType.SHAPE,
+                                    source: plugin.data.core.enums.Source.AUTO,
+                                    label: job.labels[0],
+                                    shapeType: plugin.data.core.enums.ShapeType.MASK,
+                                    points: result,
+                                    occluded: false,
+                                    zOrder: 0,
+                                });
+                                objects.push(object);
+                            }
+
+                            window.onCreateAnnotations(job, 0, objects);
+                        };
+
+
 
                         test.style.display = 'block';
                         test.style.background = 'none';
@@ -269,84 +290,224 @@ const samPlugin: SAMPlugin = {
                         test.width = canvas.width;
                         test.height = canvas.height;
 
-                        cv.then((res) => {
-                            const orig = res.imread('cvat_canvas_background')
-                            const cv = res;
-                            var orb = new cv.ORB(10000);
-                            let des = new cv.Mat();
-                            let img3 = new cv.Mat();
-                            var kp1 = new cv.KeyPointVector();
-                            // find the keypoints with ORB
-                            orb.detect(orig, kp1);
-                            // compute the descriptors with ORB
-                            var das=new cv.Mat();
-                            orb.compute(orig, kp1, das);
+                        let pointsIntereset = [];
+                        const gridX = 15;
+                        const gridY = 15;
+                        const segmentX = canvas.width / gridX;
+                        const segmentY = canvas.height / gridY;
+                        for (let i = 0; i < gridX; i++) {
+                            for (let j = 0; j < gridY; j++) {
+                                pointsIntereset.push({
+                                    x: Math.round(segmentX * i + segmentX / 2),
+                                    y: Math.round(segmentY * j + segmentY / 2),
+                                    excluded: false,
+                                });
+                            }
+                        }
 
-                            // const detector = new res.AKAZE();
-                            // const vector = new res.KeyPointVector();
-                            // detector.detect(res.imread('cvat_canvas_background'), vector);
-                            // const points = [];
+                        for await (const point of pointsIntereset) {
+                            if (point.excluded) {
+                                continue;
+                            }
 
-                            // for (let i = 0; i < vector.size(); i++) {
-                            //     const point = vector.get(i);
-                            //     points.push(point);
-                            //     console.log(points);
-                            // }
-                        });
+                            const feeds1 = modelData({
+                                clicks: [{
+                                    clickType: 1,
+                                    height: null,
+                                    width: null,
+                                    x: point.x,
+                                    y: point.y,
+                                }],
+                                tensor: plugin.data.embeddings.get(key) as Tensor,
+                                modelScale,
+                                maskInput: null,
+                            });
+
+                            const data = await (plugin.data.session as InferenceSession).run(feeds1)
+                            const { masks } = data;
+                            const maskWidth = masks.dims[3];
+                            const maskHeight = masks.dims[2];
+                            const imageData = new ImageData(maskWidth, maskHeight);
+                            for (let i = 0; i < masks.data.length; i++) {
+                                if (masks.data[i]) {
+                                    imageData.data[i * 4] = 137;
+                                    imageData.data[i * 4 + 1] = 205;
+                                    imageData.data[i * 4 + 2] = 211;
+                                    imageData.data[i * 4 + 3] = 128;
+                                }
+                            };
+                            // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
+
+                            const xtl = Number(data.xtl.data[0]);
+                            const xbr = Number(data.xbr.data[0]);
+                            const ytl = Number(data.ytl.data[0]);
+                            const ybr = Number(data.ybr.data[0]);
+
+                            const resultingImage = onnxToImage(masks.data, masks.dims[3], masks.dims[2]).flat();
+                            resultingImage.push(xtl, ytl, xbr, ybr);
+                            regions.push([masks, xtl, xbr, ytl, ybr, imageData, resultingImage]);
+
+                            for (const checkPoint of pointsIntereset) {
+                                const { x, y } = checkPoint;
+                                if (x >= xtl && y >= ytl && x <= xbr && y <= ybr) {
+                                    const localX = x - xtl;
+                                    const localY = y - ytl;
+                                    if (masks.data[localY * maskWidth + localX] && point !== checkPoint) {
+                                        checkPoint.excluded = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        // pointsIntereset.forEach(({ x, y, excluded }) => {
+                        //     if (!excluded) {
+                        //         canvas.getContext('2d').fillRect(x - 15, y - 15, 30, 30)
+                        //     }
+                        // })
+
+
+
+                        // cv.then((res) => {
+                        //     const orig = res.imread('cvat_canvas_background')
+                        //     const cv = res;
+                        //     var orb = new cv.FastFeatureDetector();
+                        //     let des = new cv.Mat();
+                        //     let img3 = new cv.Mat();
+                        //     var kp1 = new cv.KeyPointVector();
+                        //     // find the keypoints with ORB
+                        //     orb.detect(orig, kp1);
+                        //     const points = [];
+                        //     for (let i = 0; i < kp1.size(); i++) {
+                        //         points.push(kp1.get(i));
+                        //     }
+
+                        //     let sample = new cv.Mat(points.length, 2, cv.CV_32F);
+                        //     let j = 0;
+                        //     for (const point of points) {
+                        //         const { x,y } = point.pt;
+
+                        //         sample.data32F[j] = x;
+                        //         sample.data32F[j + 1] = y;
+                        //         j += 2;
+                        //     }
+
+                        //     var clusterCount = 20;
+                        //     var labels= new cv.Mat();
+                        //     var attempts = 5;
+                        //     var centers= new cv.Mat();
+
+                        //     var crite= new cv.TermCriteria(cv.TermCriteria_EPS + cv.TermCriteria_MAX_ITER, 10000, 0.0001);
+                        //     var criteria = [1,10,0.0001];
+
+                        //     cv.kmeans(sample, clusterCount, labels, crite, attempts, cv.KMEANS_PP_CENTERS, centers);
+
+                        //     const finishedCenters = [];
+                        //     for (let k = 0; k < centers.data32F.length; k += 2) {
+                        //         finishedCenters.push({
+                        //             x: centers.data32F[k],
+                        //             y: centers.data32F[k + 1],
+                        //         });
+                        //     }
+
+                        //     finishedCenters.forEach(({ x, y }) => canvas.getContext('2d').fillRect(x - 15, y - 15, 30, 30))
+
+                        //     // cv.drawKeypoints(orig, kp1, orig);
+                        //     // cv.imshow('cvat_canvas_background', orig);
+
+                        //     // compute the descriptors with ORB
+                        //     // var das=new cv.Mat();
+                        //     // orb.compute(orig, kp1, das);
+
+                        //     // const detector = new res.AKAZE();
+                        //     // const vector = new res.KeyPointVector();
+                        //     // detector.detect(res.imread('cvat_canvas_background'), vector);
+                        //     // const points = [];
+
+                        //     // for (let i = 0; i < vector.size(); i++) {
+                        //     //     const point = vector.get(i);
+                        //     //     points.push(point);
+                        //     //     console.log(points);
+                        //     // }
+                        // });
 
                         const listener = lodash.debounce((e) => {
                             const bbox = canvas?.getBoundingClientRect();
                             const { clientX, clientY } = e;
                             const { height: renderHeight, width: renderWidth, top, left } = bbox;
                             const { height, width } = canvas;
-                            const canvasX = ((clientX - left) / renderWidth) * width;
-                            const canvasY = ((clientY - top) / renderHeight) * height;
+                            const canvasX = Math.round(((clientX - left) / renderWidth) * width);
+                            const canvasY = Math.round(((clientY - top) / renderHeight) * height);
                             if (canvasX > 0 && canvasX < width && canvasY > 0 && canvasY < height) {
-                                const feeds1 = modelData({
-                                    clicks: [{
-                                        clickType: 1,
-                                        height: null,
-                                        width: null,
-                                        x: canvasX,
-                                        y: canvasY,
-                                    }],
-                                    tensor: plugin.data.embeddings.get(key) as Tensor,
-                                    modelScale,
-                                    maskInput: plugin.data.lowResMasks.has(key) ? plugin.data.lowResMasks.get(key) as Tensor : null,
-                                });
+                                // const feeds1 = modelData({
+                                //     clicks: [{
+                                //         clickType: 1,
+                                //         height: null,
+                                //         width: null,
+                                //         x: canvasX,
+                                //         y: canvasY,
+                                //     }],
+                                //     tensor: plugin.data.embeddings.get(key) as Tensor,
+                                //     modelScale,
+                                //     maskInput: plugin.data.lowResMasks.has(key) ? plugin.data.lowResMasks.get(key) as Tensor : null,
+                                // });
 
-                                (plugin.data.session as InferenceSession).run(feeds1).then((data) => {
-                                    const { masks } = data;
+                                for (const [masks, xtl, xbr, ytl, ybr, imageData] of regions) {
                                     const maskWidth = masks.dims[3];
                                     const maskHeight = masks.dims[2];
-                                    const imageData = new ImageData(maskWidth, maskHeight);
-                                    for (let i = 0; i < masks.data.length; i++) {
-                                        if (masks.data[i]) {
-                                            imageData.data[i * 4] = 137;
-                                            imageData.data[i * 4 + 1] = 205;
-                                            imageData.data[i * 4 + 2] = 211;
-                                            imageData.data[i * 4 + 3] = 128;
+                                    const localX = canvasX - xtl;
+                                    const localY = canvasY - ytl;
+                                    if (canvasX >= xtl && canvasY >= ytl && canvasX <= xbr && canvasY <= ybr) {
+                                        if (masks.data[localY * maskWidth + localX]) {
+                                            // const imageData = new ImageData(maskWidth, maskHeight);
+                                            // for (let i = 0; i < masks.data.length; i++) {
+                                            //     if (masks.data[i]) {
+                                            //         imageData.data[i * 4] = 137;
+                                            //         imageData.data[i * 4 + 1] = 205;
+                                            //         imageData.data[i * 4 + 2] = 211;
+                                            //         imageData.data[i * 4 + 3] = 128;
+                                            //     }
+                                            // };
+                                            test.getContext('2d').clearRect(0,0,100000, 10000);
+                                            test.getContext('2d').putImageData(imageData, xtl, ytl)
+                                            return;
+
                                         }
-                                    };
-                                    // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
+                                    }
 
-                                    const xtl = Number(data.xtl.data[0]);
-                                    const xbr = Number(data.xbr.data[0]);
-                                    const ytl = Number(data.ytl.data[0]);
-                                    const ybr = Number(data.ybr.data[0]);
+                                }
 
-                                    // const { width: testWidth, height: testHeight } = test;
-                                    // const left = (xtl / width) * testWidth;
-                                    // const top = (ytl / height) * testHeight;
+                                // (plugin.data.session as InferenceSession).run(feeds1).then((data) => {
+                                //     const { masks } = data;
+                                //     const maskWidth = masks.dims[3];
+                                //     const maskHeight = masks.dims[2];
+                                //     const imageData = new ImageData(maskWidth, maskHeight);
+                                //     for (let i = 0; i < masks.data.length; i++) {
+                                //         if (masks.data[i]) {
+                                //             imageData.data[i * 4] = 137;
+                                //             imageData.data[i * 4 + 1] = 205;
+                                //             imageData.data[i * 4 + 2] = 211;
+                                //             imageData.data[i * 4 + 3] = 128;
+                                //         }
+                                //     };
+                                //     // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
 
-                                    test.getContext('2d').clearRect(0,0,100000, 10000);
-                                    test.getContext('2d').putImageData(imageData, xtl, ytl)
-                                });
+                                //     const xtl = Number(data.xtl.data[0]);
+                                //     const xbr = Number(data.xbr.data[0]);
+                                //     const ytl = Number(data.ytl.data[0]);
+                                //     const ybr = Number(data.ybr.data[0]);
+
+                                //     // const { width: testWidth, height: testHeight } = test;
+                                //     // const left = (xtl / width) * testWidth;
+                                //     // const top = (ytl / height) * testHeight;
+
+                                //     test.getContext('2d').clearRect(0,0,100000, 10000);
+                                //     test.getContext('2d').putImageData(imageData, xtl, ytl)
+                                // });
                             }
                             console.log(canvasX, canvasY);
-                        }, 1000)
+                        })
 
-                        wrapper.addEventListener('mousemove', listener)
+                        // wrapper.addEventListener('mousemove', listener)
 
                         // canvas?.addEventListener('mousemove', (e) => console.log(e));
                     }

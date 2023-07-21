@@ -11,7 +11,7 @@ const config = {
     },
     origin: '',
     uploadChunkSize: 100,
-    removeUnderlyingMaskPixels: false,
+    removeUnderlyingMaskPixels: true,
     onOrganizationChange: null,
 };
 

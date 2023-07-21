@@ -928,7 +928,7 @@ export default class Collection {
         const imported = this.import(constructed);
         const importedArray = imported.tags.concat(imported.tracks).concat(imported.shapes);
         for (const object of importedArray) {
-            if (object.shapeType === ShapeType.MASK && config.removeUnderlyingMaskPixels) {
+            if (object.shapeType === ShapeType.MASK) {
                 (object as MaskShape).removeUnderlyingPixels(object.frame);
             }
         }
