@@ -1015,3 +1015,19 @@ def ONNXDetector(request):
     response = sendfile(request, path)
     response['Cache-Control'] = "public, max-age=604800"
     return response
+
+def MobileSAMEncoder(request):
+    dirname = os.path.join(settings.STATIC_ROOT, 'lambda_manager')
+    pattern = os.path.join(dirname, 'mobilesam.encoder.onnx')
+    path = glob.glob(pattern)[0]
+    response = sendfile(request, path)
+    response['Cache-Control'] = "public, max-age=259200"
+    return response
+
+def MobileSAMDecoder(request):
+    dirname = os.path.join(settings.STATIC_ROOT, 'lambda_manager')
+    pattern = os.path.join(dirname, 'mobilesam.decoder.onnx')
+    path = glob.glob(pattern)[0]
+    response = sendfile(request, path)
+    response['Cache-Control'] = "public, max-age=259200"
+    return response
