@@ -308,6 +308,7 @@ export interface PluginsState {
             ribbon: PluginComponent[];
         };
         annotationPage: {
+            controlsSidebar: PluginComponent[];
             header: {
                 player: PluginComponent[];
             };

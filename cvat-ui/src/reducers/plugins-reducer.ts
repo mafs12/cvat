@@ -41,6 +41,7 @@ const defaultState: PluginsState = {
             header: {
                 player: [],
             },
+            controlsSidebar: [],
         },
         router: [],
         loggedInModals: [],

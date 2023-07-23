@@ -7,8 +7,9 @@ import React from 'react';
 import Layout from 'antd/lib/layout';
 
 import {
-    ActiveControl, ObjectType, Rotation, ShapeType,
+    ActiveControl, ObjectType, Rotation, ShapeType, CombinedState,
 } from 'reducers';
+import { usePlugins } from 'utils/hooks';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import { Canvas, CanvasMode } from 'cvat-canvas-wrapper';
 import { LabelOptColor } from 'components/labels-editor/common';
@@ -91,6 +92,10 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
         redrawShape,
         frameData,
     } = props;
+
+    const controlPlugins = usePlugins(
+        (state: CombinedState) => state.plugins.components.annotationPage.controlsSidebar, props,
+    );
 
     const controlsDisabled = !labels.length || frameData.deleted;
     const withUnspecifiedType = labels.some((label: any) => label.type === 'any' && !label.hasParent);
@@ -205,6 +210,10 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
     return (
         <Layout.Sider className='cvat-canvas-controls-sidebar' theme='light' width={44}>
             <GlobalHotKeys keyMap={subKeyMap} handlers={handlers} />
+            { controlPlugins.map(({ component: Component }, index) => {
+                const component = <Component targetProps={props} key={index} />;
+                return component;
+            }) }
             <ObservedCursorControl
                 cursorShortkey={normalizedKeyMap.CANCEL}
                 canvasInstance={canvasInstance}

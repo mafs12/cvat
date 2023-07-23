@@ -2,9 +2,16 @@
 //
 // SPDX-License-Identifier: MIT
 
+import React from 'react';
 import { InferenceSession, Tensor } from 'onnxruntime-web';
 import { LRUCache } from 'lru-cache';
+
+import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
 import { PluginEntryPoint, APIWrapperEnterOptions, ComponentBuilder } from 'components/plugins-entrypoint';
+import { useSelector } from 'react-redux';
+import { CombinedState } from 'reducers';
+import { useDispatch } from 'react-redux';
+import { createAnnotationsAsync } from 'actions/annotation-actions';
 
 interface SAMPlugin {
     name: string;
@@ -138,6 +145,25 @@ function modelData(
     };
 }
 
+function toMatImage(input: number[], width: number, height: number): number[][] {
+    const image = Array(height).fill(0);
+    for (let i = 0; i < image.length; i++) {
+        image[i] = Array(width).fill(0);
+    }
+
+    for (let i = 0; i < input.length; i++) {
+        const row = Math.floor(i / width);
+        const col = i % width;
+        image[row][col] = input[i] * 255;
+    }
+
+    return image;
+}
+
+function onnxToImage(input: any, width: number, height: number): number[][] {
+    return toMatImage(input, width, height);
+}
+
 const samPlugin: SAMPlugin = {
     name: 'Segment Anything',
     description: 'Plugin handles non-default SAM serverless function output',
@@ -189,49 +215,13 @@ const samPlugin: SAMPlugin = {
                     model: any, { frame }: { frame: number },
                 ): Promise<null | APIWrapperEnterOptions> {
                     if (model.id === plugin.data.modelID) {
-                        if (!plugin.data.encoder || !plugin.data.decoder) {
-                            throw new Error('SAM plugin is not ready, sessions were not initialized');
+                        const job = Object.values(plugin.data.jobs)
+                            .find((_job) => _job.taskId === taskID);
+                        if (!job) {
+                            throw new Error('Could not find a job corresponding to the request');
                         }
 
-                        // const scaleX = dimension / img.width;
-                        // const scaleY = dimension / img.height;
-                        // dataType?: 'float32' | 'uint8';
-                        /**
-                         * Tensor channel layout - default is 'NHWC'
-                         */
-                        // tensorLayout?: 'NHWC' | 'NCHW';
-
-
-
-                        const key = `${taskID}_${frame}`;
-                        if (plugin.data.embeddings.has(key)) {
-                            return { preventMethodCall: true };
-                        }
-
-
-                        const maxSize = Math.max(window.document.getElementById('cvat_canvas_background').width, window.document.getElementById('cvat_canvas_background').height);
-                        const bitmap = await createImageBitmap(window.document.getElementById('cvat_canvas_background'), 0, 0, maxSize, maxSize, { resizeHeight: 1024, resizeWidth: 1024 });
-                        let canvas = new OffscreenCanvas(1024, 1024);
-                        // canvas.width = 1024;
-                        // canvas.height = 1024;
-                        canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
-                        canvas.getContext('2d')?.getImageData(0, 0, 1024, 1024);
-
-                        const src = canvas.getContext('2d')?.getImageData(0, 0, 1024, 1024);
-                        const float = Float32Array.from(src.data.filter((_, idx) => (idx + 1) % 4), (el) => el);
-                        const input_image = new Tensor('float32', float, [1024, 1024, 3]);
-
-
-
-                        // const input_image = await Tensor.fromImage(bitmap, { width: 1284, height: 1284, dataFormat: 'NHWC' });
-                        // const input_image = await Tensor.fromImage(window.document.getElementById('cvat_canvas_background').getContext('2d').getImageData(0, 0, 1284, 1284), { resizedWidth: 1024, resizedHeight: 1024, dataType: 'uint8', tensorLayout: 'NHWC' });
-
-
-                        // imageDataTensor = new ort.Tensor(tf_tensor.dataSync(), tf_tensor.shape);
-                        const feeds = { "input_image": input_image };
-                        let results = await plugin.data.encoder.run(feeds);
-                        plugin.data.embeddings.set(key, results.image_embeddings);
-
+                        const embeddings = await getEmbeddings(plugin, job, frame);
                         return { preventMethodCall: true };
                     }
 
@@ -285,25 +275,6 @@ const samPlugin: SAMPlugin = {
                         maskInput: plugin.data.lowResMasks.has(key) ? plugin.data.lowResMasks.get(key) as Tensor : null,
                     });
 
-                    function toMatImage(input: number[], width: number, height: number): number[][] {
-                        const image = Array(height).fill(0);
-                        for (let i = 0; i < image.length; i++) {
-                            image[i] = Array(width).fill(0);
-                        }
-
-                        for (let i = 0; i < input.length; i++) {
-                            const row = Math.floor(i / width);
-                            const col = i % width;
-                            image[row][col] = input[i] * 255;
-                        }
-
-                        return image;
-                    }
-
-                    function onnxToImage(input: any, width: number, height: number): number[][] {
-                        return toMatImage(input, width, height);
-                    }
-
                     const data = await (plugin.data.decoder as InferenceSession).run(feeds);
                     const { masks, low_res_masks: lowResMasks } = data;
                     const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
@@ -349,7 +320,43 @@ const samPlugin: SAMPlugin = {
     },
 };
 
-const SAMModelPlugin: ComponentBuilder = ({ core }) => {
+async function getEmbeddings(plugin: SAMPlugin, job: any, frame: number): Promise<Tensor> {
+    const taskID = job.taskId;
+    if (!plugin.data.encoder || !plugin.data.decoder) {
+        throw new Error('SAM plugin is not ready, sessions were not initialized');
+    }
+
+    const key = `${taskID}_${frame}`;
+    if (plugin.data.embeddings.has(key)) {
+        return plugin.data.embeddings.get(key) as Tensor;
+    }
+
+    const frameData = await job.frames.get(frame);
+    const { imageData: imageBitmap } = await frameData.data();
+    const scale = 1024 / Math.max(imageBitmap.width, imageBitmap.height);
+
+    const offscreenCanvas = new OffscreenCanvas(1024, 1024);
+    const context = offscreenCanvas.getContext('2d');
+    if (context) {
+        context.drawImage(
+            imageBitmap, 0, 0,
+            Math.ceil(imageBitmap.width * scale),
+            Math.ceil(imageBitmap.height * scale),
+        );
+        const scaledImageData = context.getImageData(0, 0, 1024, 1024);
+        const imageDataNoAlpha = Float32Array
+            .from(scaledImageData.data.filter((_, idx) => (idx + 1) % 4), (el) => el);
+        const inputBlob = new Tensor('float32', imageDataNoAlpha, [1024, 1024, 3]);
+        const feeds = { input_image: inputBlob };
+        const results = await plugin.data.encoder.run(feeds);
+        plugin.data.embeddings.set(key, results.image_embeddings);
+        return results.image_embeddings;
+    }
+
+    throw new Error('Offscreen canvas 2D context not found');
+}
+
+const SAMModelPlugin: ComponentBuilder = ({ dispatch, core, REGISTER_ACTION, REMOVE_ACTION }) => {
     samPlugin.data.core = core;
 
     core.plugins.register(samPlugin);
@@ -360,9 +367,233 @@ const SAMModelPlugin: ComponentBuilder = ({ core }) => {
         });
     });
 
+    const Component = () => {
+        const frame = useSelector((state: CombinedState) => state.annotation.player.frame.number);
+        const job = useSelector((state: CombinedState) => state.annotation.job.instance);
+        const dispatch = useDispatch();
+
+        return (
+            <a
+                onClick={
+                    async () => {
+                        try {
+                            const frameData = await job.frames.get(frame);
+                            const embeddings = await getEmbeddings(samPlugin, job, frame);
+
+                            const wrapper = window.document.getElementById('cvat_canvas_wrapper');
+                            const canvas = window.document.getElementById('cvat_canvas_background');
+                            const test = window.document.getElementById('cvat_canvas_bitmap');
+
+                            let regions = [];
+
+
+
+
+
+                            // test.style.display = 'block';
+                            // test.style.background = 'none';
+                            // test.getContext('2d').globalAlpha = 0.5;
+                            // test.getContext('2d').clearRect(0,0,100000, 10000);
+                            // test.width = canvas.width;
+                            // test.height = canvas.height;
+
+                            let pointsIntereset = [];
+                            const gridX = 15;
+                            const gridY = 15;
+                            const segmentX = frameData.width / gridX;
+                            const segmentY = frameData.height / gridY;
+                            for (let i = 0; i < gridX; i++) {
+                                for (let j = 0; j < gridY; j++) {
+                                    pointsIntereset.push({
+                                        x: Math.round(segmentX * i + segmentX / 2),
+                                        y: Math.round(segmentY * j + segmentY / 2),
+                                        excluded: false,
+                                    });
+                                }
+                            }
+
+                            for await (const point of pointsIntereset) {
+                                if (point.excluded) {
+                                    continue;
+                                }
+
+                                const feeds1 = modelData({
+                                    clicks: [{
+                                        clickType: 1,
+                                        height: null,
+                                        width: null,
+                                        x: point.x,
+                                        y: point.y,
+                                    }],
+                                    tensor: embeddings,
+                                    modelScale: {
+                                        width: frameData.width,
+                                        height: frameData.height,
+                                        samScale: getModelScale(frameData.width, frameData.height),
+                                    },
+                                    maskInput: null,
+                                });
+
+                                const data = await (samPlugin.data.decoder as InferenceSession).run(feeds1)
+                                const { masks } = data;
+                                const maskWidth = masks.dims[3];
+                                const maskHeight = masks.dims[2];
+                                const imageData = new ImageData(maskWidth, maskHeight);
+                                for (let i = 0; i < masks.data.length; i++) {
+                                    if (masks.data[i]) {
+                                        imageData.data[i * 4] = 137;
+                                        imageData.data[i * 4 + 1] = 205;
+                                        imageData.data[i * 4 + 2] = 211;
+                                        imageData.data[i * 4 + 3] = 128;
+                                    }
+                                };
+                                // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
+
+                                const xtl = Number(data.xtl.data[0]);
+                                const xbr = Number(data.xbr.data[0]);
+                                const ytl = Number(data.ytl.data[0]);
+                                const ybr = Number(data.ybr.data[0]);
+
+                                const resultingImage = onnxToImage(masks.data, masks.dims[3], masks.dims[2]).flat();
+                                resultingImage.push(xtl, ytl, xbr, ybr);
+                                regions.push([masks, xtl, xbr, ytl, ybr, imageData, resultingImage]);
+
+                                for (const checkPoint of pointsIntereset) {
+                                    const { x, y } = checkPoint;
+                                    if (x >= xtl && y >= ytl && x <= xbr && y <= ybr) {
+                                        const localX = x - xtl;
+                                        const localY = y - ytl;
+                                        if (masks.data[localY * maskWidth + localX] && point !== checkPoint) {
+                                            checkPoint.excluded = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // const listener = lodash.debounce((e) => {
+                            //     const bbox = canvas?.getBoundingClientRect();
+                            //     const { clientX, clientY } = e;
+                            //     const { height: renderHeight, width: renderWidth, top, left } = bbox;
+                            //     const { height, width } = canvas;
+                            //     const canvasX = Math.round(((clientX - left) / renderWidth) * width);
+                            //     const canvasY = Math.round(((clientY - top) / renderHeight) * height);
+                            //     if (canvasX > 0 && canvasX < width && canvasY > 0 && canvasY < height) {
+                            //         // const feeds1 = modelData({
+                            //         //     clicks: [{
+                            //         //         clickType: 1,
+                            //         //         height: null,
+                            //         //         width: null,
+                            //         //         x: canvasX,
+                            //         //         y: canvasY,
+                            //         //     }],
+                            //         //     tensor: plugin.data.embeddings.get(key) as Tensor,
+                            //         //     modelScale,
+                            //         //     maskInput: plugin.data.lowResMasks.has(key) ? plugin.data.lowResMasks.get(key) as Tensor : null,
+                            //         // });
+
+                            //         for (const [masks, xtl, xbr, ytl, ybr, imageData] of regions) {
+                            //             const maskWidth = masks.dims[3];
+                            //             const maskHeight = masks.dims[2];
+                            //             const localX = canvasX - xtl;
+                            //             const localY = canvasY - ytl;
+                            //             if (canvasX >= xtl && canvasY >= ytl && canvasX <= xbr && canvasY <= ybr) {
+                            //                 if (masks.data[localY * maskWidth + localX]) {
+                            //                     // const imageData = new ImageData(maskWidth, maskHeight);
+                            //                     // for (let i = 0; i < masks.data.length; i++) {
+                            //                     //     if (masks.data[i]) {
+                            //                     //         imageData.data[i * 4] = 137;
+                            //                     //         imageData.data[i * 4 + 1] = 205;
+                            //                     //         imageData.data[i * 4 + 2] = 211;
+                            //                     //         imageData.data[i * 4 + 3] = 128;
+                            //                     //     }
+                            //                     // };
+                            //                     test.getContext('2d').clearRect(0,0,100000, 10000);
+                            //                     test.getContext('2d').putImageData(imageData, xtl, ytl)
+                            //                     return;
+
+                            //                 }
+                            //             }
+
+                            //         }
+
+                            //         // (plugin.data.session as InferenceSession).run(feeds1).then((data) => {
+                            //         //     const { masks } = data;
+                            //         //     const maskWidth = masks.dims[3];
+                            //         //     const maskHeight = masks.dims[2];
+                            //         //     const imageData = new ImageData(maskWidth, maskHeight);
+                            //         //     for (let i = 0; i < masks.data.length; i++) {
+                            //         //         if (masks.data[i]) {
+                            //         //             imageData.data[i * 4] = 137;
+                            //         //             imageData.data[i * 4 + 1] = 205;
+                            //         //             imageData.data[i * 4 + 2] = 211;
+                            //         //             imageData.data[i * 4 + 3] = 128;
+                            //         //         }
+                            //         //     };
+                            //         //     // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
+
+                            //         //     const xtl = Number(data.xtl.data[0]);
+                            //         //     const xbr = Number(data.xbr.data[0]);
+                            //         //     const ytl = Number(data.ytl.data[0]);
+                            //         //     const ybr = Number(data.ybr.data[0]);
+
+                            //         //     // const { width: testWidth, height: testHeight } = test;
+                            //         //     // const left = (xtl / width) * testWidth;
+                            //         //     // const top = (ytl / height) * testHeight;
+
+                            //         //     test.getContext('2d').clearRect(0,0,100000, 10000);
+                            //         //     test.getContext('2d').putImageData(imageData, xtl, ytl)
+                            //         // });
+                            //     }
+                            //     console.log(canvasX, canvasY);
+                            // })
+
+                            const objects = [];
+                            for (const [masks, xtl, xbr, ytl, ybr, imageData, result] of regions) {
+                                const object = new samPlugin.data.core.classes.ObjectState({
+                                    frame,
+                                    objectType: samPlugin.data.core.enums.ObjectType.SHAPE,
+                                    source: samPlugin.data.core.enums.Source.AUTO,
+                                    label: job.labels[0],
+                                    shapeType: samPlugin.data.core.enums.ShapeType.MASK,
+                                    points: result,
+                                    occluded: false,
+                                    zOrder: 0,
+                                });
+                                objects.push(object);
+                            }
+
+                            dispatch(createAnnotationsAsync(job, frame, objects));
+                            // window.onCreateAnnotations(job, 0, objects);
+                        } catch (error) {
+                            console.log(error);
+                        }
+                    }
+                }
+            >
+                Test
+            </a>
+        );
+    };
+
+    dispatch({
+        type: REGISTER_ACTION,
+        payload: {
+            path: 'annotationPage.controlsSidebar',
+            component: Component,
+        },
+    });
+
     return {
-        name: 'Segment Anything model',
-        destructor: () => {},
+        name: samPlugin.name,
+        destructor: () => {
+            dispatch({
+                type: REMOVE_ACTION,
+                payload: {
+                    path: 'annotationPage.controlsSidebar',
+                    component: Component,
+                },
+            });
+        },
     };
 };
 
