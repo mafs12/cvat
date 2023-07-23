@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React from 'react';
+import React, { useState } from 'react';
 import { InferenceSession, Tensor } from 'onnxruntime-web';
 import { LRUCache } from 'lru-cache';
+import lodash from 'lodash';
 
 import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
 import { PluginEntryPoint, APIWrapperEnterOptions, ComponentBuilder } from 'components/plugins-entrypoint';
@@ -12,6 +13,9 @@ import { useSelector } from 'react-redux';
 import { CombinedState } from 'reducers';
 import { useDispatch } from 'react-redux';
 import { createAnnotationsAsync } from 'actions/annotation-actions';
+import Icon from '@ant-design/icons/lib/components/Icon';
+import { AimOutlined } from '@ant-design/icons';
+import { Button } from 'antd';
 
 interface SAMPlugin {
     name: string;
@@ -368,15 +372,26 @@ const SAMModelPlugin: ComponentBuilder = ({ dispatch, core, REGISTER_ACTION, REM
     });
 
     const Component = () => {
+        const [fetching, setFetcing] = useState(false);
         const frame = useSelector((state: CombinedState) => state.annotation.player.frame.number);
         const job = useSelector((state: CombinedState) => state.annotation.job.instance);
         const dispatch = useDispatch();
 
         return (
-            <a
+            <Button
+                disabled={fetching}
+                style={{
+                    width: 40,
+                    height: 40,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 24,
+                }}
                 onClick={
                     async () => {
                         try {
+                            setFetcing(true);
                             const frameData = await job.frames.get(frame);
                             const embeddings = await getEmbeddings(samPlugin, job, frame);
 
@@ -470,82 +485,84 @@ const SAMModelPlugin: ComponentBuilder = ({ dispatch, core, REGISTER_ACTION, REM
                                 }
                             }
 
-                            // const listener = lodash.debounce((e) => {
-                            //     const bbox = canvas?.getBoundingClientRect();
-                            //     const { clientX, clientY } = e;
-                            //     const { height: renderHeight, width: renderWidth, top, left } = bbox;
-                            //     const { height, width } = canvas;
-                            //     const canvasX = Math.round(((clientX - left) / renderWidth) * width);
-                            //     const canvasY = Math.round(((clientY - top) / renderHeight) * height);
-                            //     if (canvasX > 0 && canvasX < width && canvasY > 0 && canvasY < height) {
-                            //         // const feeds1 = modelData({
-                            //         //     clicks: [{
-                            //         //         clickType: 1,
-                            //         //         height: null,
-                            //         //         width: null,
-                            //         //         x: canvasX,
-                            //         //         y: canvasY,
-                            //         //     }],
-                            //         //     tensor: plugin.data.embeddings.get(key) as Tensor,
-                            //         //     modelScale,
-                            //         //     maskInput: plugin.data.lowResMasks.has(key) ? plugin.data.lowResMasks.get(key) as Tensor : null,
-                            //         // });
+                            const listener = lodash.debounce((e) => {
+                                const bbox = canvas?.getBoundingClientRect();
+                                const { clientX, clientY } = e;
+                                const { height: renderHeight, width: renderWidth, top, left } = bbox;
+                                const { height, width } = canvas;
+                                const canvasX = Math.round(((clientX - left) / renderWidth) * width);
+                                const canvasY = Math.round(((clientY - top) / renderHeight) * height);
+                                if (canvasX > 0 && canvasX < width && canvasY > 0 && canvasY < height) {
+                                    // const feeds1 = modelData({
+                                    //     clicks: [{
+                                    //         clickType: 1,
+                                    //         height: null,
+                                    //         width: null,
+                                    //         x: canvasX,
+                                    //         y: canvasY,
+                                    //     }],
+                                    //     tensor: plugin.data.embeddings.get(key) as Tensor,
+                                    //     modelScale,
+                                    //     maskInput: plugin.data.lowResMasks.has(key) ? plugin.data.lowResMasks.get(key) as Tensor : null,
+                                    // });
 
-                            //         for (const [masks, xtl, xbr, ytl, ybr, imageData] of regions) {
-                            //             const maskWidth = masks.dims[3];
-                            //             const maskHeight = masks.dims[2];
-                            //             const localX = canvasX - xtl;
-                            //             const localY = canvasY - ytl;
-                            //             if (canvasX >= xtl && canvasY >= ytl && canvasX <= xbr && canvasY <= ybr) {
-                            //                 if (masks.data[localY * maskWidth + localX]) {
-                            //                     // const imageData = new ImageData(maskWidth, maskHeight);
-                            //                     // for (let i = 0; i < masks.data.length; i++) {
-                            //                     //     if (masks.data[i]) {
-                            //                     //         imageData.data[i * 4] = 137;
-                            //                     //         imageData.data[i * 4 + 1] = 205;
-                            //                     //         imageData.data[i * 4 + 2] = 211;
-                            //                     //         imageData.data[i * 4 + 3] = 128;
-                            //                     //     }
-                            //                     // };
-                            //                     test.getContext('2d').clearRect(0,0,100000, 10000);
-                            //                     test.getContext('2d').putImageData(imageData, xtl, ytl)
-                            //                     return;
+                                    for (const [masks, xtl, xbr, ytl, ybr, imageData] of regions) {
+                                        const maskWidth = masks.dims[3];
+                                        const maskHeight = masks.dims[2];
+                                        const localX = canvasX - xtl;
+                                        const localY = canvasY - ytl;
+                                        if (canvasX >= xtl && canvasY >= ytl && canvasX <= xbr && canvasY <= ybr) {
+                                            if (masks.data[localY * maskWidth + localX]) {
+                                                // const imageData = new ImageData(maskWidth, maskHeight);
+                                                // for (let i = 0; i < masks.data.length; i++) {
+                                                //     if (masks.data[i]) {
+                                                //         imageData.data[i * 4] = 137;
+                                                //         imageData.data[i * 4 + 1] = 205;
+                                                //         imageData.data[i * 4 + 2] = 211;
+                                                //         imageData.data[i * 4 + 3] = 128;
+                                                //     }
+                                                // };
+                                                test.getContext('2d').clearRect(0,0,100000, 10000);
+                                                test.getContext('2d').putImageData(imageData, xtl, ytl)
+                                                return;
 
-                            //                 }
-                            //             }
+                                            }
+                                        }
 
-                            //         }
+                                    }
 
-                            //         // (plugin.data.session as InferenceSession).run(feeds1).then((data) => {
-                            //         //     const { masks } = data;
-                            //         //     const maskWidth = masks.dims[3];
-                            //         //     const maskHeight = masks.dims[2];
-                            //         //     const imageData = new ImageData(maskWidth, maskHeight);
-                            //         //     for (let i = 0; i < masks.data.length; i++) {
-                            //         //         if (masks.data[i]) {
-                            //         //             imageData.data[i * 4] = 137;
-                            //         //             imageData.data[i * 4 + 1] = 205;
-                            //         //             imageData.data[i * 4 + 2] = 211;
-                            //         //             imageData.data[i * 4 + 3] = 128;
-                            //         //         }
-                            //         //     };
-                            //         //     // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
+                                    // (plugin.data.session as InferenceSession).run(feeds1).then((data) => {
+                                    //     const { masks } = data;
+                                    //     const maskWidth = masks.dims[3];
+                                    //     const maskHeight = masks.dims[2];
+                                    //     const imageData = new ImageData(maskWidth, maskHeight);
+                                    //     for (let i = 0; i < masks.data.length; i++) {
+                                    //         if (masks.data[i]) {
+                                    //             imageData.data[i * 4] = 137;
+                                    //             imageData.data[i * 4 + 1] = 205;
+                                    //             imageData.data[i * 4 + 2] = 211;
+                                    //             imageData.data[i * 4 + 3] = 128;
+                                    //         }
+                                    //     };
+                                    //     // const imageData = onnxToImage(masks.data, masks.dims[3], masks.dims[2]);
 
-                            //         //     const xtl = Number(data.xtl.data[0]);
-                            //         //     const xbr = Number(data.xbr.data[0]);
-                            //         //     const ytl = Number(data.ytl.data[0]);
-                            //         //     const ybr = Number(data.ybr.data[0]);
+                                    //     const xtl = Number(data.xtl.data[0]);
+                                    //     const xbr = Number(data.xbr.data[0]);
+                                    //     const ytl = Number(data.ytl.data[0]);
+                                    //     const ybr = Number(data.ybr.data[0]);
 
-                            //         //     // const { width: testWidth, height: testHeight } = test;
-                            //         //     // const left = (xtl / width) * testWidth;
-                            //         //     // const top = (ytl / height) * testHeight;
+                                    //     // const { width: testWidth, height: testHeight } = test;
+                                    //     // const left = (xtl / width) * testWidth;
+                                    //     // const top = (ytl / height) * testHeight;
 
-                            //         //     test.getContext('2d').clearRect(0,0,100000, 10000);
-                            //         //     test.getContext('2d').putImageData(imageData, xtl, ytl)
-                            //         // });
-                            //     }
-                            //     console.log(canvasX, canvasY);
-                            // })
+                                    //     test.getContext('2d').clearRect(0,0,100000, 10000);
+                                    //     test.getContext('2d').putImageData(imageData, xtl, ytl)
+                                    // });
+                                }
+                                console.log(canvasX, canvasY);
+                            }, 100);
+
+                            // canvas?.addEventListener('mousemove')
 
                             const objects = [];
                             for (const [masks, xtl, xbr, ytl, ybr, imageData, result] of regions) {
@@ -566,12 +583,14 @@ const SAMModelPlugin: ComponentBuilder = ({ dispatch, core, REGISTER_ACTION, REM
                             // window.onCreateAnnotations(job, 0, objects);
                         } catch (error) {
                             console.log(error);
+                        } finally {
+                            setFetcing(false);
                         }
                     }
                 }
             >
-                Test
-            </a>
+                <AimOutlined />
+            </Button>
         );
     };
 
