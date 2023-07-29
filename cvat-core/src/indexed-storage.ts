@@ -20,8 +20,8 @@ enum IDBTransactionMode {
     READWRITE = 'readwrite',
 }
 
-type ID = string | number;
 interface IObject {
+    id: string;
     payload: any;
 }
 
@@ -35,9 +35,22 @@ const isInstance = (val: any, constructor: Function | string, store: DatabaseSto
     }
 };
 
+async function blob2ArrayBuffer(blob: Blob): Promise<{ arrayBuffer: ArrayBuffer, type: string }> {
+    const { type } = blob;
+    const arrayBuffer = await blob.arrayBuffer();
+    return {
+        arrayBuffer,
+        type,
+    };
+}
+
+async function arrayBuffer2Blob({ arrayBuffer, type }: { arrayBuffer: ArrayBuffer, type: string }): Promise<Blob> {
+    return new Blob([arrayBuffer], { type });
+}
+
 class CVATIndexedStorage {
     #dbName = 'cvat_db';
-    #version = 2;
+    #version = 1;
     #db: IDBDatabase | null = null;
     #dbUpgradedAnotherTab = false;
     #isQuotaExceed: boolean = false;
@@ -46,44 +59,54 @@ class CVATIndexedStorage {
         [DatabaseStore.PROJECTS_PREVIEW]: {
             options: { keyPath: 'id' },
             validator: (el: Blob) => isInstance(el, Blob, DatabaseStore.PROJECTS_PREVIEW),
-            serialize: (el: Blob) => el,
-            deserialize: (el: Blob) => el,
+            serialize: async (el: Blob): ReturnType<typeof blob2ArrayBuffer> => blob2ArrayBuffer(el),
+            deserialize: async (
+                el: Awaited<ReturnType<typeof blob2ArrayBuffer>>,
+            ): Promise<Blob> => arrayBuffer2Blob(el),
         },
         [DatabaseStore.TASKS_PREVIEW]: {
             options: { keyPath: 'id' },
             validator: (el: Blob) => isInstance(el, Blob, DatabaseStore.TASKS_PREVIEW),
-            serialize: (el: Blob) => el,
-            deserialize: (el: Blob) => el,
+            serialize: async (el: Blob): ReturnType<typeof blob2ArrayBuffer> => blob2ArrayBuffer(el),
+            deserialize: async (
+                el: Awaited<ReturnType<typeof blob2ArrayBuffer>>,
+            ): Promise<Blob> => arrayBuffer2Blob(el),
         },
         [DatabaseStore.JOBS_PREVIEW]: {
             options: { keyPath: 'id' },
             validator: (el: Blob) => isInstance(el, Blob, DatabaseStore.JOBS_PREVIEW),
-            serialize: (el: Blob) => el,
-            deserialize: (el: Blob) => el,
+            serialize: async (el: Blob): ReturnType<typeof blob2ArrayBuffer> => blob2ArrayBuffer(el),
+            deserialize: async (
+                el: Awaited<ReturnType<typeof blob2ArrayBuffer>>,
+            ): Promise<Blob> => arrayBuffer2Blob(el),
         },
         [DatabaseStore.CLOUDSTORAGES_PREVIEW]: {
             options: { keyPath: 'id' },
             validator: (el: Blob) => isInstance(el, Blob, DatabaseStore.CLOUDSTORAGES_PREVIEW),
-            serialize: (el: Blob) => el,
-            deserialize: (el: Blob) => el,
+            serialize: async (el: Blob): ReturnType<typeof blob2ArrayBuffer> => blob2ArrayBuffer(el),
+            deserialize: async (
+                el: Awaited<ReturnType<typeof blob2ArrayBuffer>>,
+            ): Promise<Blob> => arrayBuffer2Blob(el),
         },
         [DatabaseStore.FUNCTIONS_PREVIEW]: {
             options: { keyPath: 'id' },
             validator: (el: Blob) => isInstance(el, Blob, DatabaseStore.FUNCTIONS_PREVIEW),
-            serialize: (el: Blob) => el,
-            deserialize: (el: Blob) => el,
+            serialize: async (el: Blob): ReturnType<typeof blob2ArrayBuffer> => blob2ArrayBuffer(el),
+            deserialize: async (
+                el: Awaited<ReturnType<typeof blob2ArrayBuffer>>,
+            ): Promise<Blob> => arrayBuffer2Blob(el),
         },
         [DatabaseStore.COMPRESSED_JOB_CHUNKS]: {
             options: { keyPath: 'id' },
             validator: (el: ArrayBuffer) => isInstance(el, ArrayBuffer, DatabaseStore.COMPRESSED_JOB_CHUNKS),
-            serialize: (el: ArrayBuffer) => el,
-            deserialize: (el: string) => el,
+            serialize: (el: ArrayBuffer) => Promise.resolve(el),
+            deserialize: (el: ArrayBuffer) => Promise.resolve(el),
         },
         [DatabaseStore.CONTEXT_IMAGES]: {
             options: { keyPath: 'id' },
             validator: (el: ArrayBuffer) => isInstance(el, ArrayBuffer, DatabaseStore.CONTEXT_IMAGES),
-            serialize: (el: ArrayBuffer) => el,
-            deserialize: (el: string) => el,
+            serialize: (el: ArrayBuffer) => Promise.resolve(el),
+            deserialize: (el: ArrayBuffer) => Promise.resolve(el),
         },
     };
 
@@ -141,7 +164,7 @@ class CVATIndexedStorage {
         return this.#initializationPromise;
     }
 
-    setItem<T>(storeName: DatabaseStore, id: ID, object: T): Promise<boolean> {
+    setItem<T>(storeName: DatabaseStore, id: string, object: T): Promise<boolean> {
         return new Promise((resolve) => {
             if (!config.enableIndexedDBCache || this.#isQuotaExceed) {
                 resolve(false);
@@ -152,32 +175,32 @@ class CVATIndexedStorage {
                     const { validator, serialize } = this.#storeConfiguration[storeName];
                     validator(object);
 
-                    const transaction = (this.#db as IDBDatabase)
-                        .transaction(storeName, IDBTransactionMode.READWRITE);
-                    transaction.onabort = (event: Event) => {
-                        const error = (event.target as any).error as Error;
-                        console.warn(error);
-                        if (error.name === 'QuotaExceededError') {
-                            this.#isQuotaExceed = true;
-                            // TODO: clear and unblock
-                        }
-                        resolve(false);
-                    };
+                    serialize(object).then((serialized) => {
+                        const transaction = (this.#db as IDBDatabase)
+                            .transaction(storeName, IDBTransactionMode.READWRITE);
+                        transaction.onabort = (event: Event) => {
+                            const error = (event.target as any).error as Error;
+                            console.warn(error);
+                            if (error.name === 'QuotaExceededError') {
+                                this.#isQuotaExceed = true;
+                            }
+                            resolve(false);
+                        };
 
-                    transaction.onerror = (event: Event) => {
-                        // The error event is fired on IDBTransaction when a request
-                        // returns an error and the event bubbles up to the transaction object.
-                        const error = (event.target as any).error as Error;
-                        console.warn(error);
-                        resolve(false);
-                    };
-
-                    const indexedStore = transaction.objectStore(storeName);
-                    const request = indexedStore.put({
-                        id,
-                        payload: serialize(object),
-                    });
-                    request.onsuccess = () => resolve(true);
+                        transaction.onerror = (event: Event) => {
+                            // The error event is fired on IDBTransaction when a request
+                            // returns an error and the event bubbles up to the transaction object.
+                            const error = (event.target as any).error as Error;
+                            console.warn(error);
+                            resolve(false);
+                        };
+                        const indexedStore = transaction.objectStore(storeName);
+                        const request = indexedStore.put({
+                            id,
+                            payload: serialized,
+                        });
+                        request.onsuccess = () => resolve(true);
+                    }).catch(() => resolve(false));
                 } catch (error) {
                     console.warn(error);
                     resolve(false);
@@ -191,7 +214,7 @@ class CVATIndexedStorage {
         });
     }
 
-    getItem<T>(storeName: DatabaseStore, id: ID): Promise<T | null> {
+    getItem<T>(storeName: DatabaseStore, id: string): Promise<T | null> {
         return new Promise((resolve) => {
             if (!config.enableIndexedDBCache) {
                 resolve(null);
@@ -204,6 +227,8 @@ class CVATIndexedStorage {
                 // TODO: Check it works
                 resolve(null);
             }
+
+            const { deserialize } = this.#storeConfiguration[storeName];
 
             this.load().then(() => {
                 try {
@@ -225,7 +250,15 @@ class CVATIndexedStorage {
 
                     request.onsuccess = (event: Event) => {
                         const result = (event.target as any).result as IObject;
-                        resolve(typeof result === 'undefined' ? null : result.payload);
+                        if (typeof result === 'undefined') {
+                            resolve(null);
+                        } else {
+                            deserialize(result.payload).then((deserialized: T) => {
+                                resolve(deserialized);
+                            }).catch(() => {
+                                resolve(null);
+                            });
+                        }
                     };
                 } catch (error) {
                     console.warn(error);

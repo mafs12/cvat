@@ -77,6 +77,7 @@ const SettingsModal = (props: SettingsModalProps): JSX.Element => {
             title='Settings'
             visible={visible}
             onCancel={onClose}
+            destroyOnClose
             width={800}
             className='cvat-settings-modal'
             footer={(
