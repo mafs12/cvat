@@ -13,6 +13,7 @@ const config = {
     uploadChunkSize: 100,
     removeUnderlyingMaskPixels: false,
     onOrganizationChange: null,
+    enableIndexedDBCache: true,
 };
 
 export default config;

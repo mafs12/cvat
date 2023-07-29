@@ -22,6 +22,7 @@ import { isEmail, isResourceURL } from './common';
 import config from './config';
 import DownloadWorker from './download.worker';
 import { ServerError } from './exceptions';
+import indexedStorage, { DatabaseStore } from './indexed-storage';
 import { FunctionsResponseBody } from './server-response-types';
 import { SerializedQualityConflictData } from './quality-conflict';
 
@@ -1423,31 +1424,44 @@ function getPreview(instance: 'projects' | 'tasks' | 'jobs' | 'cloudstorages' | 
     return async function (id: number | string): Promise<Blob | null> {
         const { backendAPI } = config;
 
+        const storage = `${instance}_preview` as DatabaseStore;
+        const indexedStorageKey = `${id}`;
+        const cachedResponse = await indexedStorage.getItem<Blob>(storage, indexedStorageKey);
+        if (cachedResponse) {
+            return cachedResponse;
+        }
+
         let response = null;
         try {
             const url = `${backendAPI}/${instance}/${id}/preview`;
             response = await Axios.get(url, {
                 responseType: 'blob',
             });
+
+            await indexedStorage.setItem<Blob>(storage, indexedStorageKey, response.data);
+            return response.data;
         } catch (errorData) {
             const code = errorData.response ? errorData.response.status : errorData.code;
+            if (code === 404) {
+                return null;
+            }
             throw new ServerError(`Could not get preview for "${instance}/${id}"`, code);
         }
-
-        if (response.status === 404) {
-            return null;
-        }
-
-        return response.data;
     };
 }
 
 async function getImageContext(jid: number, frame: number): Promise<ArrayBuffer> {
     const { backendAPI } = config;
 
-    let response = null;
+    const indexedStorageKey = `${jid}_${frame}`;
+    const cachedResponse = await indexedStorage
+        .getItem<ArrayBuffer>(DatabaseStore.CONTEXT_IMAGES, indexedStorageKey);
+    if (cachedResponse) {
+        return cachedResponse;
+    }
+
     try {
-        response = await Axios.get(`${backendAPI}/jobs/${jid}/data`, {
+        const response = await Axios.get(`${backendAPI}/jobs/${jid}/data`, {
             params: {
                 quality: 'original',
                 type: 'context_image',
@@ -1455,19 +1469,26 @@ async function getImageContext(jid: number, frame: number): Promise<ArrayBuffer>
             },
             responseType: 'arraybuffer',
         });
+
+        indexedStorage.setItem<ArrayBuffer>(DatabaseStore.CONTEXT_IMAGES, indexedStorageKey, response.data);
+        return response.data;
     } catch (errorData) {
         throw generateError(errorData);
     }
-
-    return response.data;
 }
 
 async function getData(jid: number, chunk: number): Promise<ArrayBuffer> {
     const { backendAPI } = config;
 
-    let response = null;
+    const indexedStorageKey = `compressed_chunk_${jid}_${chunk}`;
+    const cachedResponse = await indexedStorage
+        .getItem<ArrayBuffer>(DatabaseStore.COMPRESSED_JOB_CHUNKS, indexedStorageKey);
+    if (cachedResponse) {
+        return cachedResponse;
+    }
+
     try {
-        response = await workerAxios.get(`${backendAPI}/jobs/${jid}/data`, {
+        const response = await workerAxios.get(`${backendAPI}/jobs/${jid}/data`, {
             params: {
                 ...enableOrganization(),
                 quality: 'compressed',
@@ -1476,6 +1497,9 @@ async function getData(jid: number, chunk: number): Promise<ArrayBuffer> {
             },
             responseType: 'arraybuffer',
         });
+
+        indexedStorage.setItem<ArrayBuffer>(DatabaseStore.COMPRESSED_JOB_CHUNKS, indexedStorageKey, response);
+        return response;
     } catch (errorData) {
         throw generateError({
             message: '',
@@ -1485,8 +1509,6 @@ async function getData(jid: number, chunk: number): Promise<ArrayBuffer> {
             },
         });
     }
-
-    return response;
 }
 
 export interface RawFramesMetaData {
@@ -1958,7 +1980,7 @@ async function getOrganizations() {
     return response.results;
 }
 
-async function createOrganization(data) {
+async function createOrganization(data: SerializedOr) {
     const { backendAPI } = config;
 
     let response = null;
@@ -2043,7 +2065,7 @@ async function updateOrganizationMembership(membershipId, data) {
     return response.data;
 }
 
-async function deleteOrganizationMembership(membershipId) {
+async function deleteOrganizationMembership(membershipId: number): Promise<void> {
     const { backendAPI } = config;
 
     try {
