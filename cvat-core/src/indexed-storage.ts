@@ -8,7 +8,7 @@ export enum DatabaseStore {
     PROJECTS_PREVIEW = 'projects_preview',
     TASKS_PREVIEW = 'tasks_preview',
     JOBS_PREVIEW = 'jobs_preview',
-    CLOUDSTORAGES_PREVIEW = 'cloud_storages_preview',
+    CLOUDSTORAGES_PREVIEW = 'cloudstorages_preview',
     FUNCTIONS_PREVIEW = 'functions_preview',
     COMPRESSED_JOB_CHUNKS = 'compressed_job_chunks',
     COMPRESSED_JOB_IMAGES = 'compressed_job_images',
