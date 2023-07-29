@@ -9,7 +9,9 @@ import {
 import { createLogger } from 'redux-logger';
 import { isDev } from 'utils/environment';
 import { CombinedState } from 'reducers';
+import { getCore } from 'cvat-core-wrapper';
 
+const cvat = getCore();
 const logger = createLogger({
     predicate: isDev,
     collapsed: true,
@@ -32,6 +34,11 @@ export default function createCVATStore(createRootReducer: () => Reducer): void 
     store = createStore(createRootReducer(), appliedMiddlewares);
     store.subscribe(() => {
         const state = (store as Store).getState() as CombinedState;
+
+        // update settings which should affect core
+        cvat.config.enableIndexedDBCache = state.settings.workspace.enableImagesCache;
+
+        // call plugin methods if necessary
         for (const plugin of Object.values(state.plugins.current)) {
             const { globalStateDidUpdate } = plugin;
             if (globalStateDidUpdate) {

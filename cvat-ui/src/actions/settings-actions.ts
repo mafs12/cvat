@@ -32,6 +32,7 @@ export enum SettingsActionTypes {
     CHANGE_CONTRAST_LEVEL = 'CHANGE_CONTRAST_LEVEL',
     CHANGE_SATURATION_LEVEL = 'CHANGE_SATURATION_LEVEL',
     SWITCH_AUTO_SAVE = 'SWITCH_AUTO_SAVE',
+    SWITCH_IMAGES_CACHE = 'SWITCH_IMAGES_CACHE',
     CHANGE_AUTO_SAVE_INTERVAL = 'CHANGE_AUTO_SAVE_INTERVAL',
     CHANGE_AAM_ZOOM_MARGIN = 'CHANGE_AAM_ZOOM_MARGIN',
     CHANGE_DEFAULT_APPROX_POLY_THRESHOLD = 'CHANGE_DEFAULT_APPROX_POLY_THRESHOLD',
@@ -260,6 +261,15 @@ export function switchAutoSave(autoSave: boolean): AnyAction {
         type: SettingsActionTypes.SWITCH_AUTO_SAVE,
         payload: {
             autoSave,
+        },
+    };
+}
+
+export function switchImagesCache(enableImagesCache: boolean): AnyAction {
+    return {
+        type: SettingsActionTypes.SWITCH_IMAGES_CACHE,
+        payload: {
+            enableImagesCache,
         },
     };
 }

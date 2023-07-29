@@ -43,6 +43,7 @@ const defaultState: SettingsState = {
             buttonVisible: false,
         },
         showTagsOnFrame: true,
+        enableImagesCache: true,
     },
     player: {
         canvasBackgroundColor: '#ffffff',
@@ -280,6 +281,15 @@ export default (state = defaultState, action: AnyAction): SettingsState => {
                 workspace: {
                     ...state.workspace,
                     autoSave: action.payload.autoSave,
+                },
+            };
+        }
+        case SettingsActionTypes.SWITCH_IMAGES_CACHE: {
+            return {
+                ...state,
+                workspace: {
+                    ...state.workspace,
+                    enableImagesCache: action.payload.enableImagesCache,
                 },
             };
         }

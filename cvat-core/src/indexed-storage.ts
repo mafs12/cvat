@@ -36,9 +36,10 @@ const isInstance = (val: any, constructor: Function | string, store: DatabaseSto
 };
 
 class CVATIndexedStorage {
-    #db_name = 'cvat_db';
-    #version = 1;
+    #dbName = 'cvat_db';
+    #version = 2;
     #db: IDBDatabase | null = null;
+    #dbUpgradedAnotherTab = false;
     #isQuotaExceed: boolean = false;
     #initializationPromise: Promise<void> | null = null;
     #storeConfiguration = {
@@ -87,13 +88,17 @@ class CVATIndexedStorage {
     };
 
     load(): Promise<void> {
+        if (!indexedDB || this.#dbUpgradedAnotherTab) {
+            return Promise.reject();
+        }
+
         if (this.#db) {
             return Promise.resolve();
         }
 
         if (!this.#initializationPromise) {
             this.#initializationPromise = new Promise<void>((resolve, reject) => {
-                const request = indexedDB.open(this.#db_name, this.#version);
+                const request = indexedDB.open(this.#dbName, this.#version);
                 request.onupgradeneeded = () => {
                     const db = request.result;
 
@@ -112,12 +117,14 @@ class CVATIndexedStorage {
                         }
 
                         this.#db = null;
-                        // rare case when the main app was updated
-                        // and a user upgraded the db in another tab
-                        // and still using the same database in old tab
+                        this.#dbUpgradedAnotherTab = true;
+                        // a user upgraded (with new version in js code) or deleted the db in another tab
+                        // we close connection and remove the database in current one
 
-                        // eslint-disable-next-line
-                        alert('App was updated. Please, reload the browser page, otherwise further correct work is not guaranteed');
+                        if (alert) {
+                            // eslint-disable-next-line
+                            alert('App was updated. Please, reload the browser page, otherwise further correct work is not guaranteed');
+                        }
                     };
 
                     resolve();
@@ -176,7 +183,9 @@ class CVATIndexedStorage {
                     resolve(false);
                 }
             }).catch((error) => {
-                console.warn(error);
+                if (error) {
+                    console.warn(error);
+                }
                 resolve(false);
             });
         });
@@ -223,9 +232,49 @@ class CVATIndexedStorage {
                     resolve(null);
                 }
             }).catch((error) => {
-                console.warn(error);
+                if (error) {
+                    console.warn(error);
+                }
                 resolve(null);
             });
+        });
+    }
+
+    estimate(): Promise<{ quota: number; usage: number } | null> {
+        return new Promise((resolve) => {
+            if (navigator?.storage) {
+                navigator.storage.estimate().then((estimation: StorageEstimate) => {
+                    if (typeof estimation.quota === 'number' && typeof estimation.usage === 'number') {
+                        resolve({
+                            quota: estimation.quota,
+                            usage: estimation.usage,
+                        });
+                    } else {
+                        resolve(null);
+                    }
+                }).catch(() => {
+                    resolve(null);
+                });
+            } else {
+                resolve(null);
+            }
+        });
+    }
+
+    clear(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (this.#db) {
+                this.#db.close();
+            }
+            const request = indexedDB.deleteDatabase(this.#dbName);
+
+            request.onerror = (event) => {
+                reject((event.target as any).error || new Error('Could not delete the database'));
+            };
+
+            request.onsuccess = () => {
+                this.load().finally(() => resolve());
+            };
         });
     }
 }

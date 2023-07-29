@@ -33,6 +33,7 @@ import QualityConflict from './quality-conflict';
 import QualitySettings from './quality-settings';
 import { FramesMetaData } from './frames';
 import AnalyticsReport from './analytics-report';
+import indexedStorage from './indexed-storage';
 
 export default function implementAPI(cvat) {
     cvat.plugins.list.implementation = PluginRegistry.list;
@@ -436,6 +437,16 @@ export default function implementAPI(cvat) {
 
         const reportData = await serverProxy.analytics.performance.reports(updatedParams);
         return new AnalyticsReport(reportData);
+    };
+
+    cvat.storage.estimate.implementation = async (): Promise<StorageEstimate | null> => {
+        const result = await indexedStorage.estimate();
+        return result;
+    };
+
+    cvat.storage.clear.implementation = async (): Promise<void> => {
+        const result = await indexedStorage.clear();
+        return result;
     };
 
     return cvat;

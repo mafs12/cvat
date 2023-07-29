@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { Row, Col } from 'antd/lib/grid';
 import Checkbox, { CheckboxChangeEvent } from 'antd/lib/checkbox';
@@ -15,7 +15,11 @@ import {
     MAX_ACCURACY,
     marks,
 } from 'components/annotation-page/standard-workspace/controls-side-bar/approximation-accuracy';
+import { getCore } from 'cvat-core-wrapper';
 import { clamp } from 'utils/math';
+import { Button, Modal } from 'antd';
+
+const core = getCore();
 
 interface Props {
     autoSave: boolean;
@@ -31,7 +35,9 @@ interface Props {
     textPosition: 'center' | 'auto';
     textContent: string;
     showTagsOnFrame: boolean;
+    enableImagesCache: boolean;
     onSwitchAutoSave(enabled: boolean): void;
+    onSwitchImagesCache(enabled: boolean): void;
     onChangeAutoSaveInterval(interval: number): void;
     onChangeAAMZoomMargin(margin: number): void;
     onChangeDefaultApproxPolyAccuracy(approxPolyAccuracy: number): void;
@@ -47,6 +53,7 @@ interface Props {
 }
 
 function WorkspaceSettingsComponent(props: Props): JSX.Element {
+    const [storageEstimation, setStorageEstimation] = useState<StorageEstimate | null>(null);
     const {
         autoSave,
         autoSaveInterval,
@@ -61,7 +68,9 @@ function WorkspaceSettingsComponent(props: Props): JSX.Element {
         textPosition,
         textContent,
         showTagsOnFrame,
+        enableImagesCache,
         onSwitchAutoSave,
+        onSwitchImagesCache,
         onChangeAutoSaveInterval,
         onChangeAAMZoomMargin,
         onSwitchShowingInterpolatedTracks,
@@ -82,6 +91,16 @@ function WorkspaceSettingsComponent(props: Props): JSX.Element {
     const maxAAMMargin = 1000;
     const minControlPointsSize = 4;
     const maxControlPointsSize = 8;
+
+    useEffect(() => {
+        core.storage.estimate().then((estimation: StorageEstimate | null) => {
+            setStorageEstimation(estimation);
+        });
+    }, []);
+
+    const storageAvailableMb = ((storageEstimation?.quota || 0) / (1024 * 1024 * 1024)).toFixed(2);
+    const storageUsedMb = ((storageEstimation?.usage || 0) / (1024 * 1024 * 1024)).toFixed(2);
+    const storageMessage = `Gigabytes available ${storageAvailableMb} and ${storageUsedMb} in use`;
 
     return (
         <div className='cvat-workspace-settings'>
@@ -115,6 +134,52 @@ function WorkspaceSettingsComponent(props: Props): JSX.Element {
                         }}
                     />
                     <Text type='secondary'> minutes </Text>
+                </Col>
+            </Row>
+            <Row>
+                <Col span={12} className='cvat-workspace-settings-enable-images-cache'>
+                    <Row>
+                        <Checkbox
+                            className='cvat-text-color'
+                            checked={enableImagesCache}
+                            onChange={(event: CheckboxChangeEvent): void => {
+                                if (event.target.checked) {
+                                    window.navigator.storage.persisted().then((persisted) => {
+                                        if (!persisted) {
+                                            return window.navigator.storage.persist();
+                                        }
+                                        return Promise.resolve(true);
+                                    }).then((res) => {
+                                        if (!res) {
+                                            Modal.info({
+                                                title: 'Storage notification',
+                                                content: 'Browser did not allow to use persistent storage, it means that cache can be removed by a browser any time',
+                                            });
+                                        }
+                                    });
+                                }
+                                onSwitchImagesCache(event.target.checked);
+                            }}
+                        >
+                            Enable images cache
+                        </Checkbox>
+                    </Row>
+                    <Row className='cvat-workspace-settings-cache-size-info'>
+                        <Text type='secondary'>Cache accelerates image navigation</Text>
+                        { storageEstimation && <Text type='secondary'>{storageMessage}</Text>}
+                        <Button
+                            type='link'
+                            onClick={() => {
+                                core.storage.clear().then(() => {
+                                    core.storage.estimate().then((estimation: StorageEstimate | null) => {
+                                        setStorageEstimation(estimation);
+                                    });
+                                });
+                            }}
+                        >
+                            clear
+                        </Button>
+                    </Row>
                 </Col>
             </Row>
             <Row>

@@ -813,6 +813,7 @@ export interface WorkspaceSettingsState {
     textPosition: 'auto' | 'center';
     textContent: string;
     showTagsOnFrame: boolean;
+    enableImagesCache: boolean;
 }
 
 export interface ShapesSettingsState {
