@@ -566,10 +566,9 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
                 this.data.objects = objectStates;
                 this.notify(UpdateReasons.OBJECTS_UPDATED);
             })
-            .catch((exception: any): void => {
-                this.data.exception = exception;
-                // don't notify when the frame is no longer needed
-                if (typeof exception !== 'number' || exception === this.data.imageID) {
+            .catch((exception: Error | number): void => {
+                if (typeof exception !== 'number') {
+                    this.data.exception = exception;
                     this.notify(UpdateReasons.DATA_FAILED);
                 }
             });
