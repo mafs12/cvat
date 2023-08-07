@@ -108,10 +108,10 @@ spec:
           ports:
           - containerPort: 8080
           volumeMounts:
-        {{- if not .Values.cvat.backend.disableDistinctCachePerService }}
+          {{- if not .Values.cvat.backend.disableDistinctCachePerService }}
           - mountPath: /home/django/data/cache
             name: cvat-utils-backend-cache
-        {{- end }}
+          {{- end }}
           - mountPath: /home/django/data
             name: cvat-backend-data
             subPath: data
@@ -141,7 +141,7 @@ spec:
           {{- if not .Values.cvat.backend.disableDistinctCachePerService }}
           - mountPath: /home/django/data/cache
             name: cvat-utils-backend-cache
-            {{- end }}
+          {{- end }}
           - mountPath: /home/django/data
             name: cvat-backend-data
             subPath: data
@@ -172,11 +172,10 @@ spec:
         - name: cvat-backend-data
           persistentVolumeClaim:
             claimName: "{{ .Release.Name }}-backend-data"
-
+        {{- end }}
         {{- if not .Values.cvat.backend.disableDistinctCachePerService }}
         - name: cvat-utils-backend-cache
           emptyDir: {}
-        {{- end }}
         {{- end }}
         {{- with .Values.cvat.backend.utils.additionalVolumes }}
         {{- toYaml . | nindent 8 }}

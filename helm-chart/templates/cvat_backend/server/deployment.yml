@@ -178,10 +178,10 @@ spec:
         - name: cvat-backend-data
           persistentVolumeClaim:
             claimName: "{{ .Release.Name }}-backend-data"
+        {{- end }}
         {{- if not .Values.cvat.backend.disableDistinctCachePerService }}
         - name: cvat-server-backend-cache
           emptyDir: {}
-        {{- end }}
         {{- end }}
         {{- with .Values.cvat.backend.server.additionalVolumes }}
         {{- toYaml . | nindent 8 }}

@@ -163,7 +163,7 @@ cvat:
     replicas: 1
     image: openpolicyagent/opa
     tag: 0.45.0-rootless
-    imagepullploicy: IfNotPresent
+    imagePullPolicy: IfNotPresent
     labels: {}
     #  test: test
     annotations: {}
